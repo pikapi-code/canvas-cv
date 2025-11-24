@@ -1,0 +1,5 @@
+{
+  "name": "CanvasCV",
+  "description": "An AI-powered, block-based resume editor featuring drag-and-drop layout, inline editing, and Gemini-powered text optimization.",
+  "requestFramePermissions": []
+}
