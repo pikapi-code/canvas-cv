@@ -87,13 +87,33 @@ const initialBlocks: ResumeBlock[] = [
   }
 ];
 
+function getDefaultDataForType(type: BlockType): any {
+  switch (type) {
+    case 'header': return { fullName: 'Name', title: 'Title', email: 'email@example.com', phone: '', location: '' };
+    case 'summary': return { content: 'Add your professional summary here.' };
+    case 'experience': return { items: [{ id: `job-${Date.now()}`, role: 'Role', company: 'Company', startDate: 'Start', endDate: 'End', description: 'Description' }] };
+    case 'education': return { items: [{ id: `edu-${Date.now()}`, degree: 'Degree', school: 'School', year: 'Year' }] };
+    case 'skills': return { items: [{ id: `skill-${Date.now()}`, name: 'Skill' }] };
+    default: return {};
+  }
+}
+
 export const useResumeStore = create<ResumeState>((set, get) => ({
   blocks: initialBlocks,
   theme: 'modern',
+  styleConfig: {
+    fontFamily: 'sans',
+    fontSize: 'base',
+    lineHeight: 'normal',
+    pageMargin: 'standard',
+    accentColor: '#3b82f6'
+  },
   activeBlockId: null,
   lastAddedBlockId: null,
   atsAnalysis: null,
   jobDescription: '',
+  isHeatmapVisible: false,
+  isAISuggestionsEnabled: true,
 
   addBlock: (type: BlockType) => set((state) => {
     const newBlock: ResumeBlock = {
@@ -103,7 +123,7 @@ export const useResumeStore = create<ResumeState>((set, get) => ({
       isVisible: true,
       data: getDefaultDataForType(type)
     };
-    return { 
+    return {
       blocks: [...state.blocks, newBlock],
       lastAddedBlockId: newBlock.id
     };
@@ -125,23 +145,15 @@ export const useResumeStore = create<ResumeState>((set, get) => ({
 
   setActiveBlock: (id: string | null) => set({ activeBlockId: id }),
   setTheme: (theme) => set({ theme }),
-  
+  setStyleConfig: (config) => set((state) => ({ styleConfig: { ...state.styleConfig, ...config } })),
+
   setATSAnalysis: (analysis) => set({ atsAnalysis: analysis }),
   setJobDescription: (jd) => set({ jobDescription: jd }),
+  toggleHeatmap: () => set((state) => ({ isHeatmapVisible: !state.isHeatmapVisible })),
+  toggleAISuggestions: () => set((state) => ({ isAISuggestionsEnabled: !state.isAISuggestionsEnabled })),
 
   getResumeText: () => {
     const state = get();
     return state.blocks.map(b => JSON.stringify(b.data)).join(' ');
   }
 }));
-
-function getDefaultDataForType(type: BlockType): any {
-  switch (type) {
-    case 'header': return { fullName: 'Name', title: 'Title', email: 'email@example.com', phone: '', location: '' };
-    case 'summary': return { content: 'Add your professional summary here.' };
-    case 'experience': return { items: [{ id: `job-${Date.now()}`, role: 'Role', company: 'Company', startDate: 'Start', endDate: 'End', description: 'Description' }] };
-    case 'education': return { items: [{ id: `edu-${Date.now()}`, degree: 'Degree', school: 'School', year: 'Year' }] };
-    case 'skills': return { items: [{ id: `skill-${Date.now()}`, name: 'Skill' }] };
-    default: return {};
-  }
-}

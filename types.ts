@@ -3,9 +3,9 @@ export type BlockType = 'header' | 'summary' | 'experience' | 'education' | 'ski
 export interface ResumeBlock {
   id: string;
   type: BlockType;
-  title: string; // Display title like "Work Experience"
+  title: string;
   isVisible: boolean;
-  data: any; // Flexible data structure depending on block type
+  data: any;
 }
 
 export interface HeaderData {
@@ -58,6 +58,14 @@ export interface SkillsData {
 
 export type Theme = 'modern' | 'minimal' | 'serif' | 'classic';
 
+export interface StyleConfig {
+  fontFamily: 'sans' | 'serif' | 'mono';
+  fontSize: 'sm' | 'base' | 'lg';
+  lineHeight: 'tight' | 'normal' | 'loose';
+  pageMargin: 'compact' | 'standard' | 'spacious';
+  accentColor: string;
+}
+
 export interface ATSAnalysisResult {
   score: number;
   criticalIssues: string[];
@@ -68,18 +76,24 @@ export interface ATSAnalysisResult {
 export interface ResumeState {
   blocks: ResumeBlock[];
   theme: Theme;
+  styleConfig: StyleConfig;
   activeBlockId: string | null;
   lastAddedBlockId: string | null;
   atsAnalysis: ATSAnalysisResult | null;
   jobDescription: string;
-  
+  isHeatmapVisible: boolean;
+  isAISuggestionsEnabled: boolean;
+
   addBlock: (type: BlockType) => void;
   removeBlock: (id: string) => void;
   updateBlockData: (id: string, data: any) => void;
   reorderBlocks: (activeId: string, overId: string) => void;
   setActiveBlock: (id: string | null) => void;
   setTheme: (theme: Theme) => void;
+  setStyleConfig: (config: Partial<StyleConfig>) => void;
   setATSAnalysis: (analysis: ATSAnalysisResult) => void;
   setJobDescription: (jd: string) => void;
+  toggleHeatmap: () => void;
+  toggleAISuggestions: () => void;
   getResumeText: () => string;
 }

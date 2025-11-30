@@ -1,10 +1,18 @@
 import { GoogleGenAI } from "@google/genai";
 
-const apiKey = process.env.API_KEY || '';
-const ai = new GoogleGenAI({ apiKey });
+const apiKey = process.env.GEMINI_API_KEY || '';
+let ai: GoogleGenAI | null = null;
+
+try {
+  if (apiKey) {
+    ai = new GoogleGenAI({ apiKey });
+  }
+} catch (error) {
+  console.error("Failed to initialize GoogleGenAI:", error);
+}
 
 export const improveText = async (text: string, instruction: string): Promise<string> => {
-  if (!apiKey) {
+  if (!apiKey || !ai) {
     console.error("API Key is missing");
     return "Error: API Key missing. Please configure your environment.";
   }
@@ -34,9 +42,9 @@ export const improveText = async (text: string, instruction: string): Promise<st
 };
 
 export const generateSummary = async (role: string, experience: string): Promise<string> => {
-   if (!apiKey) return "API Key missing.";
+  if (!apiKey || !ai) return "API Key missing.";
 
-   try {
+  try {
     const model = 'gemini-2.5-flash';
     const prompt = `
       Write a professional resume summary (approx 50 words) for a ${role}.
@@ -51,19 +59,19 @@ export const generateSummary = async (role: string, experience: string): Promise
     });
 
     return response.text?.trim() || "";
-   } catch (error) {
-     console.error("Gemini API Error:", error);
-     return "";
-   }
+  } catch (error) {
+    console.error("Gemini API Error:", error);
+    return "";
+  }
 }
 
 export const analyzeATS = async (resumeText: string, jobDescription: string = ''): Promise<any> => {
-  if (!apiKey) return null;
-  
+  if (!apiKey || !ai) return null;
+
   try {
     const model = 'gemini-2.5-flash';
     const jdContext = jobDescription ? `Target Job Description: ${jobDescription}` : "Target: General Professional Role";
-    
+
     const prompt = `
       Analyze this resume text for ATS (Applicant Tracking System) compatibility.
       ${jdContext}
@@ -99,19 +107,30 @@ export const analyzeATS = async (resumeText: string, jobDescription: string = ''
   }
 };
 
-export const getSmartCompletion = async (currentSentence: string, context: string): Promise<string> => {
-  if (!apiKey || currentSentence.length < 5) return "";
+export const getSmartCompletion = async (currentSentence: string, context: string, role?: string, company?: string): Promise<string> => {
+  if (!apiKey || !ai || currentSentence.length < 10) return "";
 
   try {
     const model = 'gemini-2.5-flash';
+    const roleContext = role ? `Role: ${role}` : '';
+    const companyContext = company ? `Company: ${company}` : '';
+
     const prompt = `
-      Complete this resume bullet point in a professional, impact-oriented way.
-      Context: The user is writing a resume.
+      You are an expert resume writer. Complete this bullet point for a resume.
+      Context: ${context}
+      ${roleContext}
+      ${companyContext}
+      
       Current text: "${currentSentence}"
       
-      Return ONLY the completion part (the rest of the sentence). 
+      Task: Provide a high-quality, professional completion that focuses on impact and results.
+      Rules:
+      1. Return ONLY the completion text.
+      2. Do not repeat the input text.
+      3. Keep it concise (max 10-15 words).
+      4. If the input is too short or unclear, return an empty string.
+      
       Example Input: "Led a team of" -> Example Output: "5 engineers to deliver the project 2 weeks ahead of schedule."
-      Keep it short (max 10-15 words).
     `;
 
     const response = await ai.models.generateContent({
@@ -119,7 +138,11 @@ export const getSmartCompletion = async (currentSentence: string, context: strin
       contents: prompt,
     });
 
-    return response.text?.trim() || "";
+    const text = response.text?.trim() || "";
+    // Filter out bad completions
+    if (text.length < 5 || text.includes("Input:") || text.includes("Output:")) return "";
+
+    return text;
   } catch (error) {
     return "";
   }
