@@ -1,0 +1,152 @@
+name: Build and Deploy to VM
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+env:
+  NODE_VERSION: '20'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build application
+        run: npm run build
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+
+      - name: Create deployment archive
+        run: |
+          # Verify dist folder exists
+          if [ ! -d "dist" ]; then
+            echo "Error: dist folder not found after build"
+            exit 1
+          fi
+          echo "Creating archive with:"
+          ls -la dist/ | head -10
+          tar -czf deploy.tar.gz dist package.json package-lock.json Dockerfile docker-compose.yml nginx.conf
+          echo "Archive created. Contents:"
+          tar -tzf deploy.tar.gz | head -20
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-artifacts
+          path: deploy.tar.gz
+          retention-days: 7
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: build-artifacts
+
+      - name: Deploy to VM via SSH
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VM_HOST }}
+          username: ${{ secrets.VM_USERNAME }}
+          key: ${{ secrets.VM_SSH_KEY }}
+          port: ${{ secrets.VM_PORT || 22 }}
+          source: "deploy.tar.gz"
+          target: "/tmp"
+
+      - name: Extract and deploy on VM
+        uses: appleboy/ssh-action@v1.0.3
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        with:
+          host: ${{ secrets.VM_HOST }}
+          username: ${{ secrets.VM_USERNAME }}
+          key: ${{ secrets.VM_SSH_KEY }}
+          port: ${{ secrets.VM_PORT || 22 }}
+          script: |
+            cd /tmp
+            tar -xzf deploy.tar.gz
+            
+            # Verify extracted files
+            echo "Extracted files:"
+            ls -la /tmp/
+            echo "Dist folder contents:"
+            ls -la /tmp/dist/ || echo "ERROR: dist folder not found after extraction"
+            
+            # Set deployment directory
+            DEPLOY_DIR="/opt/canvascv"
+            
+            # Create deployment directory if it doesn't exist (handle permissions)
+            if [ ! -d "${DEPLOY_DIR}" ]; then
+              # Try with sudo first
+              if sudo mkdir -p ${DEPLOY_DIR} 2>/dev/null && sudo chown -R ${USER}:${USER} ${DEPLOY_DIR} 2>/dev/null; then
+                echo "Created ${DEPLOY_DIR} with sudo"
+              else
+                # If sudo fails, try without (in case directory already exists from previous run)
+                mkdir -p ${DEPLOY_DIR} 2>/dev/null || {
+                  echo "Warning: Could not create ${DEPLOY_DIR}, using home directory"
+                  DEPLOY_DIR="$HOME/canvascv"
+                  mkdir -p ${DEPLOY_DIR}
+                }
+              fi
+            else
+              # Directory exists, ensure we can write to it
+              if [ ! -w "${DEPLOY_DIR}" ]; then
+                # Try to fix permissions
+                sudo chown -R ${USER}:${USER} ${DEPLOY_DIR} 2>/dev/null || {
+                  echo "Warning: Cannot write to ${DEPLOY_DIR}, using home directory"
+                  DEPLOY_DIR="$HOME/canvascv"
+                  mkdir -p ${DEPLOY_DIR}
+                }
+              fi
+            fi
+            
+            # Copy files to deployment directory
+            cp -r dist package.json package-lock.json Dockerfile docker-compose.yml nginx.conf ${DEPLOY_DIR}/
+            
+            # Verify dist folder exists and has content
+            if [ ! -d "${DEPLOY_DIR}/dist" ] || [ -z "$(ls -A ${DEPLOY_DIR}/dist 2>/dev/null)" ]; then
+              echo "Error: dist folder is missing or empty in ${DEPLOY_DIR}"
+              echo "Contents of ${DEPLOY_DIR}:"
+              ls -la ${DEPLOY_DIR}/
+              exit 1
+            fi
+            
+            # Create or update .env file with GEMINI_API_KEY
+            cd ${DEPLOY_DIR}
+            echo "GEMINI_API_KEY=${GEMINI_API_KEY}" > .env
+            
+            # Verify files are in place before Docker build
+            echo "Files in deployment directory before Docker build:"
+            ls -la ${DEPLOY_DIR}/
+            echo "Dist folder contents:"
+            ls -la ${DEPLOY_DIR}/dist/
+            
+            # Remove .dockerignore if it exists (it excludes dist which we need for build)
+            rm -f ${DEPLOY_DIR}/.dockerignore
+            
+            # Build and restart Docker container
+            docker compose down || true
+            docker compose up -d --build
+            
+            # Cleanup
+            rm -f /tmp/deploy.tar.gz
+            rm -rf /tmp/dist /tmp/package.json /tmp/package-lock.json /tmp/Dockerfile /tmp/docker-compose.yml /tmp/nginx.conf
+

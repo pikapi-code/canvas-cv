@@ -1,0 +1,13 @@
+services:
+  canvascv:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8001:80"
+    restart: unless-stopped
+    environment:
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+    labels:
+      - "com.docker.compose.project=canvascv"
+
