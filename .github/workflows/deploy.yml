@@ -81,6 +81,9 @@ jobs:
           key: ${{ secrets.VM_SSH_KEY }}
           port: ${{ secrets.VM_PORT || 22 }}
           script: |
+            # Safety: Only work in /tmp and /opt/canvascv - never touch home directory or SSH keys
+            set -e  # Exit on error
+            
             cd /tmp
             tar -xzf deploy.tar.gz
             
@@ -90,8 +93,14 @@ jobs:
             echo "Dist folder contents:"
             ls -la /tmp/dist/ || echo "ERROR: dist folder not found after extraction"
             
-            # Set deployment directory
+            # Set deployment directory - SAFETY: Hardcoded to prevent accidental deletion
             DEPLOY_DIR="/opt/canvascv"
+            
+            # Safety check: Ensure DEPLOY_DIR is not empty and is the expected path
+            if [ -z "${DEPLOY_DIR}" ] || [ "${DEPLOY_DIR}" = "/" ] || [ "${DEPLOY_DIR}" = "$HOME" ] || [ "${DEPLOY_DIR}" = "$HOME/.ssh" ]; then
+              echo "ERROR: Invalid deployment directory! Aborting to prevent data loss."
+              exit 1
+            fi
             
             # Create deployment directory if it doesn't exist (handle permissions)
             if [ ! -d "${DEPLOY_DIR}" ]; then
@@ -103,19 +112,37 @@ jobs:
                 mkdir -p ${DEPLOY_DIR} 2>/dev/null || {
                   echo "Warning: Could not create ${DEPLOY_DIR}, using home directory"
                   DEPLOY_DIR="$HOME/canvascv"
+                  # Safety check for home directory fallback
+                  if [ -z "${DEPLOY_DIR}" ] || [ "${DEPLOY_DIR}" = "$HOME/.ssh" ]; then
+                    echo "ERROR: Cannot use home directory fallback. Aborting."
+                    exit 1
+                  fi
                   mkdir -p ${DEPLOY_DIR}
                 }
               fi
             else
               # Directory exists, ensure we can write to it
+              # SAFETY: Only chown the specific directory, never use -R on parent directories
               if [ ! -w "${DEPLOY_DIR}" ]; then
-                # Try to fix permissions
-                sudo chown -R ${USER}:${USER} ${DEPLOY_DIR} 2>/dev/null || {
+                # Try to fix permissions - only on the deployment directory itself
+                sudo chown ${USER}:${USER} ${DEPLOY_DIR} 2>/dev/null || {
                   echo "Warning: Cannot write to ${DEPLOY_DIR}, using home directory"
                   DEPLOY_DIR="$HOME/canvascv"
+                  # Safety check for home directory fallback
+                  if [ -z "${DEPLOY_DIR}" ] || [ "${DEPLOY_DIR}" = "$HOME/.ssh" ]; then
+                    echo "ERROR: Cannot use home directory fallback. Aborting."
+                    exit 1
+                  fi
                   mkdir -p ${DEPLOY_DIR}
                 }
               fi
+            fi
+            
+            # Verify DEPLOY_DIR is safe before proceeding
+            echo "Deployment directory: ${DEPLOY_DIR}"
+            if [[ "${DEPLOY_DIR}" == *".ssh"* ]] || [[ "${DEPLOY_DIR}" == *"/root"* ]] || [ "${DEPLOY_DIR}" = "/" ]; then
+              echo "ERROR: Deployment directory is unsafe! Aborting."
+              exit 1
             fi
             
             # Copy files to deployment directory
@@ -140,13 +167,18 @@ jobs:
             ls -la ${DEPLOY_DIR}/dist/
             
             # Remove .dockerignore if it exists (it excludes dist which we need for build)
+            # SAFETY: Only remove from deployment directory
             rm -f ${DEPLOY_DIR}/.dockerignore
             
             # Build and restart Docker container
+            # SAFETY: docker compose only affects containers in the current directory
+            cd ${DEPLOY_DIR}
             docker compose down || true
             docker compose up -d --build
             
-            # Cleanup
+            # Cleanup - SAFETY: Only clean up /tmp files, never touch system files or home directory
             rm -f /tmp/deploy.tar.gz
             rm -rf /tmp/dist /tmp/package.json /tmp/package-lock.json /tmp/Dockerfile /tmp/docker-compose.yml /tmp/nginx.conf
+            
+            echo "Deployment completed successfully. No system files or SSH keys were modified."
 
